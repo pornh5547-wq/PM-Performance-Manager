@@ -1,9 +1,17 @@
 import json
 import os
+import sys
 
 CONFIG_DIR = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'PMPerformanceManager')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 LOG_FILE = os.path.join(CONFIG_DIR, 'logs.txt')
+
+def theme_path(name="purple"):
+    try:
+        base = sys._MEIPASS
+    except:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "app", "assets", f"{name}.json")
 
 DEFAULT_CONFIG = {
     "theme": "Dark",
@@ -61,7 +69,7 @@ def log(message):
     timestamp = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     entry = f"[{timestamp}] {message}\n"
     try:
-        with open(LOG_FILE, 'a') as f:
+        with open(LOG_FILE, 'a', buffering=1) as f:
             f.write(entry)
     except:
         pass

@@ -1,164 +1,77 @@
 import tkinter as tk
-import customtkinter as ctk
-import math
+import time
 
 BG = "#050510"
-PURPLE = "#8b5cf6"
-TEXT = "#c4b5fd"
-TEXT_DIM = "#6b7280"
+ACCENT = "#3b82f6"
+TITLE_CLR = "#f1f5f9"
+DOTS_CLR = "#94a3b8"
+STATUS_CLR = "#64748b"
 
-class ScanOverlay(ctk.CTkFrame):
+class ScanOverlay(tk.Frame):
     def __init__(self, parent, on_complete=None):
-        super().__init__(parent, fg_color=BG)
+        super().__init__(parent, bg=BG)
         self.on_complete = on_complete
-        self._angle = 0
-        self._pulse = 0.0
-        self._dot_count = 0
-        self._anim_id = None
         self._done = False
-        self._fading = False
-        self._alpha = 1.0
+        self._last_frame = 0.0
         self._status_text = "Starting scan..."
-        self._build()
-        self._animate()
+        self._phase = 0
 
-    def _build(self):
         self.canvas = tk.Canvas(self, bg=BG, highlightthickness=0)
         self.canvas.pack(expand=True, fill="both")
-        self.canvas.bind("<Configure>", self._on_resize)
 
-        self.title_label = ctk.CTkLabel(self, text="PM Performance Manager",
-                                         font=ctk.CTkFont(size=26, weight="bold"), text_color=TEXT)
-        self.title_label.place(relx=0.5, rely=0.47, anchor="center")
+        self._logo = self.canvas.create_text(0, 0, text="\u26a1",
+            font=("Segoe UI", 64), fill=ACCENT, anchor="center")
+        self._title = self.canvas.create_text(0, 0, text="PM Performance Manager",
+            font=("Segoe UI", 20, "bold"), fill=TITLE_CLR, anchor="center")
+        self._loading = self.canvas.create_text(0, 0, text="Loading",
+            font=("Segoe UI", 13), fill=DOTS_CLR, anchor="center")
+        self._status = self.canvas.create_text(0, 0, text=self._status_text,
+            font=("Segoe UI", 11), fill=STATUS_CLR, anchor="center")
 
-        self.dots_label = ctk.CTkLabel(self, text="", font=ctk.CTkFont(size=16), text_color=PURPLE)
-        self.dots_label.place(relx=0.5, rely=0.57, anchor="center")
-
-        self.status_label = ctk.CTkLabel(self, text=self._status_text,
-                                          font=ctk.CTkFont(size=12), text_color=TEXT_DIM)
-        self.status_label.place(relx=0.5, rely=0.63, anchor="center")
+        self.after(50, self._animate)
 
     def set_status(self, text):
         self._status_text = text
-        if hasattr(self, 'status_label') and self.status_label.winfo_exists():
-            self.status_label.configure(text=text)
 
     def finish(self):
         self._done = True
 
-    def _on_resize(self, event):
-        self._draw_triangle()
+    def _update(self):
+        w, h = self.master.winfo_width(), self.master.winfo_height()
+        if w < 50 or h < 50:
+            w, h = 1200, 780
 
-    def _draw_triangle(self):
-        self.canvas.delete("tri")
-        w = self.canvas.winfo_width() or 600
-        h = self.canvas.winfo_height() or 600
-        cx, cy = w // 2, h // 2 - 40
+        cx, cy = w // 2, h // 2 - 20
+        self.canvas.coords(self._logo, cx, cy - 60)
+        self.canvas.coords(self._title, cx, cy + 10)
+        self.canvas.coords(self._loading, cx, cy + 45)
+        self.canvas.coords(self._status, cx, cy + 70)
 
-        base_size = min(w, h) * 0.1
-        if base_size < 35:
-            base_size = 35
-        if base_size > 130:
-            base_size = 130
+        self._phase = (self._phase + 1) % 12
+        self.canvas.itemconfig(self._loading, text=f"Loading{'.' * (self._phase // 4 + 1)}")
+        self.canvas.itemconfig(self._status, text=self._status_text)
 
-        pulse = math.sin(self._pulse) * 0.5 + 0.5
-        angle_rad = math.radians(self._angle)
-
-        glow_size = base_size * (1.4 + 0.15 * pulse)
-        glow_pts = []
-        for i in range(3):
-            a = angle_rad + math.radians(i * 120)
-            glow_pts.extend([cx + glow_size * math.cos(a), cy + glow_size * math.sin(a)])
-
-        mid_size = base_size * (1.1 + 0.08 * pulse)
-        mid_pts = []
-        for i in range(3):
-            a = angle_rad + math.radians(i * 120)
-            mid_pts.extend([cx + mid_size * math.cos(a), cy + mid_size * math.sin(a)])
-
-        main_pts = []
-        for i in range(3):
-            a = angle_rad + math.radians(i * 120)
-            main_pts.extend([cx + base_size * math.cos(a), cy + base_size * math.sin(a)])
-
-        inner_pts = []
-        inner_size = base_size * 0.45
-        for i in range(3):
-            a = angle_rad + math.radians(180 + i * 120)
-            inner_pts.extend([cx + inner_size * math.cos(a), cy + inner_size * math.sin(a)])
-
-        glow_alpha = int(60 * pulse)
-        self.canvas.create_polygon(glow_pts, fill="", outline=f"#8b5cf6{glow_alpha:02x}", width=2, tags="tri")
-
-        mid_alpha = int(120 + 80 * pulse)
-        mid_color = f"#a78bfa{mid_alpha:02x}"
-        self.canvas.create_polygon(mid_pts, fill="", outline=mid_color, width=1, tags="tri")
-
-        brightness = int(139 + 80 * pulse)
-        main_color = f"#{brightness:02x}{max(92 - int(30 * pulse), 40):02x}{246:02x}"
-        self.canvas.create_polygon(main_pts, fill="", outline=main_color, width=2.5, tags="tri")
-
-        self.canvas.create_polygon(inner_pts, fill="", outline=PURPLE, width=1, tags="tri")
-
-        for i in range(3):
-            a = angle_rad + math.radians(i * 120)
-            x1 = cx + base_size * math.cos(a)
-            y1 = cy + base_size * math.sin(a)
-            r = 3 + 2 * pulse
-            self.canvas.create_oval(x1 - r, y1 - r, x1 + r, y1 + r, fill=main_color, outline="", tags="tri")
+        if self._phase % 4 == 0:
+            shade = 0.85 + 0.15 * (1 if self._phase % 8 < 4 else 0)
+            r = int(59 * shade)
+            g = int(130 * shade)
+            b = int(246 * shade)
+            self.canvas.itemconfig(self._logo, fill=f"#{r:02x}{g:02x}{b:02x}")
 
     def _animate(self):
         if not self.winfo_exists():
             return
-        self._angle = (self._angle + 1.5) % 360
-        self._pulse += 0.04
-        self._dot_count = (self._dot_count + 1) % 24
-
-        self._draw_triangle()
-
-        dots = "." * (1 + (self._dot_count // 8))
-        self.dots_label.configure(text=f"Loading{dots}")
-        self.status_label.configure(text=self._status_text)
-
-        if self._done and not self._fading:
-            self._fading = True
-            self.after(400, self._start_fade)
-            return
-
-        self._anim_id = self.after(35, self._animate)
-
-    def _start_fade(self):
-        if not self.winfo_exists():
-            return
-        self._alpha -= 0.04
-        if self._alpha <= 0:
+        now = time.monotonic()
+        if self._last_frame == 0:
+            self._last_frame = now
+        dt = now - self._last_frame
+        self._last_frame = now
+        self._update()
+        if self._done:
+            self._done = False
             cb = self.on_complete
             self.destroy()
             if cb:
                 cb()
             return
-        try:
-            self.configure(fg_color=self._blend(BG, self._alpha))
-            self.canvas.configure(bg=self._blend(BG, self._alpha))
-            for w in [self.title_label, self.dots_label, self.status_label]:
-                if w.winfo_exists():
-                    c = w.cget("text_color")
-                    if c and c != "transparent":
-                        w.configure(text_color=self._blend_text(c, self._alpha))
-        except:
-            pass
-        self.after(25, self._start_fade)
-
-    def _blend(self, color, alpha):
-        r, g, b = 5, 5, 16
-        br, bg, bb = 15, 23, 42
-        return f"#{int(r + (br - r) * (1 - alpha)):02x}{int(g + (bg - g) * (1 - alpha)):02x}{int(b + (bb - b) * (1 - alpha)):02x}"
-
-    def _blend_text(self, color, alpha):
-        try:
-            hex_c = color.lstrip("#")
-            r, g, b = int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
-            tr, tg, tb = 226, 232, 240
-            return f"#{int(r + (tr - r) * (1 - alpha)):02x}{int(g + (tg - g) * (1 - alpha)):02x}{int(b + (tb - b) * (1 - alpha)):02x}"
-        except:
-            return color
+        self.after(150, self._animate)

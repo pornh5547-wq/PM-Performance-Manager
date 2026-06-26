@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import threading
+import time
 from app.config import Config, log
 from app.notifications import ToastManager
 from app.pages.dashboard import DashboardPage
@@ -27,9 +28,10 @@ from app.utils.update_checker import UpdateChecker
 from app.utils.scan_manager import ScanManager
 from app.widgets.scan_overlay import ScanOverlay
 from app.plugins.loader import PluginLoader
+from app.config import theme_path
 
 ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("dark-blue")
+ctk.set_default_color_theme(theme_path("purple"))
 
 NAV_CATEGORIES = [
     ("\U0001f4ca", "Dashboard", [
@@ -73,16 +75,19 @@ for _icon, _cat, items in NAV_CATEGORIES:
     for key, label in items:
         NAV_ITEMS.append((key, label))
 
-NAV_BG = "#111827"
-NAV_ACCENT = "#3b82f6"
-NAV_HOVER = "#1e293b"
-NAV_ACTIVE = "#1e3a5f"
-CONTENT_BG = "#0f172a"
+NAV_BG = "#1a0a2e"
+NAV_ACCENT = "#a855f7"
+NAV_HOVER = "#2e1065"
+NAV_ACTIVE = "#7c3aed"
+NAV_TEXT = "#eab308"
+CONTENT_BG = "#1a0a2e"
+TOPBAR_BG = "#2d0d5e"
 
 COLOR_THEMES = {
-    "dark-blue": "dark-blue",
-    "blue": "blue",
-    "green": "green",
+    "purple": lambda: theme_path("purple"),
+    "dark-blue": lambda: theme_path("purple"),
+    "blue": lambda: theme_path("purple"),
+    "green": lambda: theme_path("purple"),
 }
 
 PAGE_CLASSES = {
@@ -105,6 +110,7 @@ class PerformanceManagerApp(ctk.CTk):
         self.scheduler = MaintenanceScheduler(self.config)
         self.plugin_loader = PluginLoader()
         self.toast = None
+        self._slide_after_id = None
         self.scan_manager = ScanManager()
         self.config.scan_manager = self.scan_manager
 
@@ -114,16 +120,17 @@ class PerformanceManagerApp(ctk.CTk):
         self.geometry("1200x780")
         self.minsize(960, 640)
 
-        self._show_startup_overlay()
         self._build_layout()
+        self._show_startup_overlay()
         self._bind_events()
         self._post_init()
 
     def _apply_theme(self):
         mode = self.config.get("appearance_mode", "Dark")
         ctk.set_appearance_mode(mode)
-        theme = self.config.get("color_theme", "dark-blue")
-        ctk.set_default_color_theme(COLOR_THEMES.get(theme, "dark-blue"))
+        theme = self.config.get("color_theme", "purple")
+        path_fn = COLOR_THEMES.get(theme, COLOR_THEMES["purple"])
+        ctk.set_default_color_theme(path_fn())
 
     def _build_layout(self):
         self.grid_columnconfigure(0, weight=0, minsize=240)
@@ -135,12 +142,13 @@ class PerformanceManagerApp(ctk.CTk):
         self.nav_frame.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self.nav_frame.grid_propagate(False)
 
-        self.top_bar = ctk.CTkFrame(self, fg_color="#1a2332", corner_radius=0, height=48)
+        self.top_bar = ctk.CTkFrame(self, fg_color=TOPBAR_BG, corner_radius=0, height=48)
         self.top_bar.grid(row=0, column=1, sticky="nsew")
         self.top_bar.grid_propagate(False)
 
         self.content_frame = ctk.CTkFrame(self, fg_color=CONTENT_BG, corner_radius=0)
         self.content_frame.grid(row=1, column=1, sticky="nsew")
+        self.content_frame.grid_propagate(False)
         self.content_frame.grid_columnconfigure(0, weight=1)
         self.content_frame.grid_rowconfigure(0, weight=1)
 
@@ -170,70 +178,110 @@ class PerformanceManagerApp(ctk.CTk):
         logo_frame = ctk.CTkFrame(self.nav_frame, fg_color="transparent", height=60)
         logo_frame.pack(fill="x", pady=(0, 15))
         logo_frame.pack_propagate(False)
-        ctk.CTkLabel(logo_frame, text="\u26a1 PM", font=ctk.CTkFont(size=24, weight="bold"), text_color=NAV_ACCENT).pack(pady=(12, 0))
+        ctk.CTkLabel(logo_frame, text="\u26a1 PM", font=ctk.CTkFont(size=24, weight="bold"), text_color=NAV_TEXT).pack(pady=(12, 0))
 
         nav_container = ctk.CTkScrollableFrame(self.nav_frame, fg_color="transparent")
         nav_container.pack(fill="both", expand=True, padx=8)
 
+        self._cat_items = {}
+        self._cat_arrows = {}
+        self._expanded_cat = "Dashboard"
+
         for icon, cat_name, items in NAV_CATEGORIES:
             cat_frame = ctk.CTkFrame(nav_container, fg_color="transparent")
-            cat_frame.pack(fill="x", pady=2)
+            cat_frame.pack(fill="x", pady=(1, 0))
 
-            item_frame = ctk.CTkFrame(cat_frame, fg_color="transparent")
-            item_frame.pack(fill="x")
+            hdr_frame = ctk.CTkFrame(cat_frame, fg_color="transparent")
+            hdr_frame.pack(fill="x")
+
+            arrow = ctk.CTkLabel(hdr_frame, text="\u25b6", font=ctk.CTkFont(size=10), text_color="#a78bfa")
+            arrow.pack(side="right", padx=(0, 4))
+
+            hdr = ctk.CTkButton(
+                hdr_frame, text=f"{icon}  {cat_name}", anchor="w",
+                fg_color="transparent", hover_color=NAV_HOVER,
+                text_color="#e2e8f0", font=ctk.CTkFont(size=13, weight="bold"),
+                height=36, corner_radius=6,
+                command=lambda name=cat_name: self._toggle_cat(name),
+            )
+            hdr.pack(fill="x", side="left", expand=True)
+
+            self._cat_arrows[cat_name] = arrow
+            container = ctk.CTkFrame(cat_frame, fg_color="transparent")
+            self._cat_items[cat_name] = container
 
             for page_key, label in items:
                 btn = ctk.CTkButton(
-                    item_frame, text=f"  {label}", anchor="w",
+                    container, text=f"    {label}", anchor="w",
                     fg_color="transparent", hover_color=NAV_HOVER,
-                    text_color="#94a3b8", font=ctk.CTkFont(size=13),
-                    height=32, corner_radius=6,
+                    text_color="#a1a1aa", font=ctk.CTkFont(size=12),
+                    height=30, corner_radius=6,
                     command=lambda k=page_key: self._switch_page(k),
                 )
-                btn.pack(fill="x", pady=1)
+                btn.pack(fill="x", pady=1, padx=(12, 0))
                 self.nav_buttons[page_key] = btn
+
+        dash_ctn = self._cat_items.get("Dashboard")
+        if dash_ctn:
+            dash_ctn.pack(fill="x", pady=(0, 4))
+            arr = self._cat_arrows.get("Dashboard")
+            if arr:
+                arr.configure(text="\u25bc")
 
         bottom = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
         bottom.pack(fill="x", padx=10, pady=(0, 12))
-        ctk.CTkLabel(bottom, text="v1.0.0", font=ctk.CTkFont(size=10), text_color="#475569").pack()
+        ctk.CTkLabel(bottom, text="v1.0.0", font=ctk.CTkFont(size=10), text_color="#6b21a8").pack()
+
+    def _toggle_cat(self, name):
+        if self._expanded_cat == name:
+            return
+        if self._expanded_cat:
+            old = self._cat_items.get(self._expanded_cat)
+            if old:
+                old.pack_forget()
+                arr = self._cat_arrows.get(self._expanded_cat)
+                if arr:
+                    arr.configure(text="\u25b6")
+        container = self._cat_items.get(name)
+        if container:
+            container.pack(fill="x", pady=(0, 4))
+            arr = self._cat_arrows.get(name)
+            if arr:
+                arr.configure(text="\u25bc")
+        self._expanded_cat = name
 
     def _build_pages(self):
-        dashboard = DashboardPage(self.content_frame, self.config)
-        dashboard.grid(row=0, column=0, sticky="nsew")
-        self.page_frames["dashboard"] = dashboard
         self._page_titles = {k: v for k, v in NAV_ITEMS}
-
-    def _lazy_load_page(self, page_key):
-        if page_key in self.page_frames:
-            return
-        cls = PAGE_CLASSES.get(page_key)
-        if not cls:
-            return
-        if page_key == "settings":
-            frame = cls(self.content_frame, self.config, self.scheduler)
-        else:
-            frame = cls(self.content_frame, self.config)
-        frame.grid(row=0, column=0, sticky="nsew")
-        self.page_frames[page_key] = frame
+        for page_key, cls in PAGE_CLASSES.items():
+            frame = cls(self.content_frame, self.config, self.scheduler) if page_key == "settings" else cls(self.content_frame, self.config)
+            self.page_frames[page_key] = frame
 
     def _switch_page(self, page_key):
         for key, btn in self.nav_buttons.items():
             if key == page_key:
-                btn.configure(fg_color=NAV_ACTIVE, text_color="white")
+                btn.configure(fg_color=NAV_ACTIVE, text_color=NAV_TEXT)
             else:
-                btn.configure(fg_color="transparent", text_color="#94a3b8")
+                btn.configure(fg_color="transparent", text_color="#a1a1aa")
 
-        if self.current_page:
-            old = self.page_frames.get(self.current_page)
-            if old and hasattr(old, 'stop_monitoring'):
-                old.stop_monitoring()
-            old.grid_remove()
+        if self.current_page == page_key:
+            return
 
-        self._lazy_load_page(page_key)
+        old = self.page_frames.get(self.current_page) if self.current_page else None
         new_page = self.page_frames.get(page_key)
         if not new_page:
             return
-        new_page.grid()
+
+        # Cancel any in-progress slide animation immediately
+        if hasattr(self, '_slide_after_id') and self._slide_after_id:
+            self.after_cancel(self._slide_after_id)
+            self._slide_after_id = None
+
+        # Remove old page from display
+        if old:
+            if hasattr(old, 'stop_monitoring'):
+                old.stop_monitoring()
+            old.place_forget()
+
         if hasattr(new_page, 'start_monitoring'):
             new_page.start_monitoring()
         if hasattr(new_page, 'on_activate'):
@@ -242,34 +290,77 @@ class PerformanceManagerApp(ctk.CTk):
         self.current_page = page_key
         self.page_title.configure(text=self._page_titles.get(page_key, page_key.capitalize()))
 
+        # Animate new page: slide in from the right
+        cw = self.content_frame.winfo_width()
+        if cw < 20:
+            cw = max(self.content_frame.winfo_reqwidth(), 900)
+        ch = self.content_frame.winfo_height()
+        if ch < 20:
+            ch = 500
+
+        new_page.configure(width=cw, height=ch)
+        new_page.place(x=cw, y=0)
+        new_page.lift()
+
+        steps = 10
+        interval = 15
+
+        def slide(step):
+            if not self.winfo_exists():
+                return
+            if step >= steps:
+                new_page.place(x=0, y=0, relwidth=1, relheight=1)
+                self._slide_after_id = None
+                return
+            new_x = int(cw * (steps - step - 1) / steps)
+            new_page.place_configure(x=new_x)
+            self._slide_after_id = new_page.after(interval, lambda: slide(step + 1))
+
+        slide(0)
+
     def _bind_events(self):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _show_startup_overlay(self):
+        self._overlay_start_time = time.time()
+        self._scan_is_done = False
         self.overlay = ScanOverlay(self, on_complete=self._on_startup_done)
         self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.overlay.lift()
-        self.scan_manager.start_scan(callback=self._on_scan_complete)
-        self._poll_scan_progress()
+        self.scan_manager.start_scan()
+        self._poll_scan_and_overlay()
 
-    def _poll_scan_progress(self):
+    def _poll_scan_and_overlay(self):
         if not self.overlay:
             return
-        if self.overlay.winfo_exists():
-            self.overlay.set_status(self.scan_manager.get_progress())
-            self.after(200, self._poll_scan_progress)
+        if not self.overlay.winfo_exists():
+            return
+        self._scan_is_done = not self.scan_manager.is_running()
+        self.overlay.set_status(self.scan_manager.get_progress())
+        if self._scan_is_done:
+            self._finish_overlay_if_ready()
+        else:
+            self.after(200, self._poll_scan_and_overlay)
 
     def _post_init(self):
         self.toast = ToastManager(self)
         self._switch_page("dashboard")
         self.update()
 
-    def _on_scan_complete(self):
+    def _finish_overlay_if_ready(self):
+        elapsed = time.time() - getattr(self, '_overlay_start_time', 0)
+        if elapsed < 8.0:
+            self.after(int((8.0 - elapsed) * 1000) + 50, self._finish_overlay_if_ready)
+            return
         if self.overlay and self.overlay.winfo_exists():
             self.overlay.finish()
 
     def _on_startup_done(self):
         self.overlay = None
+        self.update_idletasks()
+        self.after(50, self._post_startup)
+
+    def _post_startup(self):
         self.status_text.configure(text="Ready")
         self._update_scan_status()
         self._finish_init()
@@ -281,27 +372,34 @@ class PerformanceManagerApp(ctk.CTk):
     def _do_periodic_scan(self):
         self.status_text.configure(text="Scanning...")
         log("Starting periodic 5-minute scan")
-        self.scan_manager.start_scan(callback=self._on_periodic_done)
+        self.scan_manager.start_scan()
+        self._poll_periodic_scan()
         self.after(300000, self._do_periodic_scan)
 
-    def _on_periodic_done(self):
-        self.status_text.configure(text="Ready")
-        self._update_scan_status()
-        log("Periodic scan complete")
+    def _poll_periodic_scan(self):
+        if self.scan_manager.is_running():
+            self.after(500, self._poll_periodic_scan)
+        else:
+            self.status_text.configure(text="Ready")
+            self._update_scan_status()
+            log("Periodic scan complete")
 
     def _update_scan_status(self):
         ago = self.scan_manager.last_scan_ago()
         self.scan_status.configure(text=f"Scan: {ago}")
 
     def _finish_init(self):
-        if self.config.get("scheduled_maintenance", False):
-            self.scheduler.start()
-        if self.config.get("plugins_enabled", True):
-            loaded = self.plugin_loader.load_all()
-            log(f"Loaded {len(loaded)} plugins")
-        if self.config.get("check_updates", True):
-            UpdateChecker().check(self._on_update_check)
-        log("Application started")
+        try:
+            if self.config.get("scheduled_maintenance", False):
+                self.scheduler.start()
+            if self.config.get("plugins_enabled", True):
+                loaded = self.plugin_loader.load_all()
+                log(f"Loaded {len(loaded)} plugins")
+            if self.config.get("check_updates", True):
+                UpdateChecker().check(lambda r: self.after(0, lambda: self._on_update_check(r)))
+            log("Application started")
+        except Exception as e:
+            log(f"_finish_init error: {e}")
 
     def _on_update_check(self, result):
         if result.get("has_update"):

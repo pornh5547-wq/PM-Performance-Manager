@@ -76,7 +76,8 @@ class DashboardPage(ctk.CTkFrame):
         if self.monitoring:
             return
         self.monitoring = True
-        self._schedule_collect()
+        self._pending_refresh = False
+        self._do_collect_and_update()
 
     def stop_monitoring(self):
         self.monitoring = False
@@ -84,10 +85,23 @@ class DashboardPage(ctk.CTkFrame):
             self.after_cancel(self.after_id)
             self.after_id = None
 
-    def _schedule_collect(self):
+    def _do_collect_and_update(self):
         if not self.monitoring:
             return
+        self._pending_refresh = False
         threading.Thread(target=self._collect_stats, daemon=True).start()
+        self.after_id = self.after(100, self._poll_stats)
+
+    def _poll_stats(self):
+        if not self.monitoring:
+            return
+        if self._pending_refresh:
+            self._update_ui()
+            self._pending_refresh = False
+            interval = max(self.config.get("monitoring_interval", 3000), 2000)
+            self.after_id = self.after(interval, self._do_collect_and_update)
+        else:
+            self.after_id = self.after(100, self._poll_stats)
 
     def _collect_stats(self):
         try:
@@ -100,16 +114,13 @@ class DashboardPage(ctk.CTkFrame):
                 "top": self.monitor.get_top_processes(12),
             }
             self._cached_stats = stats
+            self._pending_refresh = True
         except:
             pass
-        self.after_id = self.after(0, self._update_ui)
 
     def _update_ui(self):
         stats = self._cached_stats
         if not stats:
-            if self.monitoring:
-                interval = max(self.config.get("monitoring_interval", 3000), 2000)
-                self.after_id = self.after(interval, self._schedule_collect)
             return
 
         cpu = stats.get("cpu", 0)
@@ -159,10 +170,6 @@ class DashboardPage(ctk.CTkFrame):
             self.process_text.delete("1.0", "end")
             self.process_text.insert("1.0", proc_text)
             self.process_text.configure(state="disabled")
-
-        if self.monitoring:
-            interval = max(self.config.get("monitoring_interval", 3000), 2000)
-            self.after_id = self.after(interval, self._schedule_collect)
 
     def on_activate(self):
         pass

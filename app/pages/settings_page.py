@@ -1,6 +1,6 @@
 import customtkinter as ctk
 import threading
-from app.config import Config
+from app.config import Config, theme_path
 from app.utils.admin import disable_windows_updates, enable_windows_updates, clear_dns_cache, set_high_performance_power_plan
 from app.utils.cleanup import clean_temp_files, clean_shader_cache
 from app.utils.update_checker import UpdateChecker
@@ -31,8 +31,8 @@ class SettingsPage(ctk.CTkFrame):
         appearance_dd.pack(anchor="w", padx=15, pady=(0, 8))
 
         ctk.CTkLabel(theme_frame, text="Color Theme", font=ctk.CTkFont(size=13)).pack(anchor="w", padx=15, pady=(0, 0))
-        self.theme_var = ctk.StringVar(value=self.config.get("color_theme", "dark-blue"))
-        theme_dd = ctk.CTkOptionMenu(theme_frame, values=["dark-blue", "blue", "green"],
+        self.theme_var = ctk.StringVar(value=self.config.get("color_theme", "purple"))
+        theme_dd = ctk.CTkOptionMenu(theme_frame, values=["purple", "dark-blue", "green"],
                                       variable=self.theme_var)
         theme_dd.pack(anchor="w", padx=15, pady=(0, 10))
 
@@ -115,6 +115,7 @@ class SettingsPage(ctk.CTkFrame):
         self.config.set("color_theme", self.theme_var.get())
         self.config.save()
         ctk.set_appearance_mode(self.appearance_var.get())
+        ctk.set_default_color_theme(theme_path(self.theme_var.get()))
         threading.Thread(target=self._apply_settings, daemon=True).start()
 
     def _apply_settings(self):
