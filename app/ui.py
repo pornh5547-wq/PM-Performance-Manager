@@ -24,6 +24,8 @@ from app.pages.visual_toggles_page import VisualTogglesPage
 from app.pages.speed_test_page import SpeedTestPage
 from app.utils.scheduler import MaintenanceScheduler
 from app.utils.update_checker import UpdateChecker
+from app.utils.scan_manager import ScanManager
+from app.widgets.scan_overlay import ScanOverlay
 from app.plugins.loader import PluginLoader
 
 ctk.set_appearance_mode("Dark")
@@ -76,7 +78,6 @@ NAV_ACCENT = "#3b82f6"
 NAV_HOVER = "#1e293b"
 NAV_ACTIVE = "#1e3a5f"
 CONTENT_BG = "#0f172a"
-CARD_BG = "#1e293b"
 
 COLOR_THEMES = {
     "dark-blue": "dark-blue",
@@ -104,6 +105,8 @@ class PerformanceManagerApp(ctk.CTk):
         self.scheduler = MaintenanceScheduler(self.config)
         self.plugin_loader = PluginLoader()
         self.toast = None
+        self.scan_manager = ScanManager()
+        self.config.scan_manager = self.scan_manager
 
         self._apply_theme()
 
@@ -156,8 +159,11 @@ class PerformanceManagerApp(ctk.CTk):
 
         self.status_dot = ctk.CTkLabel(right, text="\u25cf", font=ctk.CTkFont(size=10), text_color="#4ade80")
         self.status_dot.pack(side="left", padx=2)
-        self.status_text = ctk.CTkLabel(right, text="Ready", font=ctk.CTkFont(size=11), text_color="gray")
+        self.status_text = ctk.CTkLabel(right, text="Starting...", font=ctk.CTkFont(size=11), text_color="gray")
         self.status_text.pack(side="left", padx=2)
+
+        self.scan_status = ctk.CTkLabel(right, text="", font=ctk.CTkFont(size=10), text_color="#475569")
+        self.scan_status.pack(side="left", padx=5)
 
     def _build_navbar(self):
         logo_frame = ctk.CTkFrame(self.nav_frame, fg_color="transparent", height=60)
@@ -241,8 +247,41 @@ class PerformanceManagerApp(ctk.CTk):
     def _post_init(self):
         self.toast = ToastManager(self)
         self._switch_page("dashboard")
-        self.status_text.configure(text="Loading...")
-        self.after(800, self._finish_init)
+        self._show_scan_overlay()
+        self.scan_manager.start_scan(callback=self._on_scan_complete)
+
+    def _show_scan_overlay(self):
+        self.overlay = ScanOverlay(self.content_frame, self.scan_manager, on_complete=self._on_overlay_done)
+        self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.overlay.lift()
+
+    def _on_scan_complete(self):
+        pass
+
+    def _on_overlay_done(self):
+        self.overlay = None
+        self.status_text.configure(text="Ready")
+        self._update_scan_status()
+        self._finish_init()
+        self._schedule_periodic_scan()
+
+    def _schedule_periodic_scan(self):
+        self.after(300000, self._do_periodic_scan)
+
+    def _do_periodic_scan(self):
+        self.status_text.configure(text="Scanning...")
+        log("Starting periodic 5-minute scan")
+        self.scan_manager.start_scan(callback=self._on_periodic_done)
+        self.after(300000, self._do_periodic_scan)
+
+    def _on_periodic_done(self):
+        self.status_text.configure(text="Ready")
+        self._update_scan_status()
+        log("Periodic scan complete")
+
+    def _update_scan_status(self):
+        ago = self.scan_manager.last_scan_ago()
+        self.scan_status.configure(text=f"Scan: {ago}")
 
     def _finish_init(self):
         if self.config.get("scheduled_maintenance", False):
@@ -252,7 +291,6 @@ class PerformanceManagerApp(ctk.CTk):
             log(f"Loaded {len(loaded)} plugins")
         if self.config.get("check_updates", True):
             UpdateChecker().check(self._on_update_check)
-        self.status_text.configure(text="Ready")
         log("Application started")
 
     def _on_update_check(self, result):
